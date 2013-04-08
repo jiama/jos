@@ -98,6 +98,18 @@ boot_alloc(uint32_t n)
 	// to a multiple of PGSIZE.
 	//
 	// LAB 2: Your code here.
+	if(n == 0) {
+		return nextfree;
+	} else if(n > 0) {
+		nextfree = KADDR((physaddr_t)ROUNDUP((char *)(PADDR(nextfree) + n), PGSIZE));
+		if(!nextfree) {
+			panic("boot_alloc has no more memory to alloc.\n");
+		} else {
+			return nextfree;
+		}
+	} else {
+		panic("boot_alloc gets invalid argument.\n");
+	}
 
 	return NULL;
 }
@@ -121,7 +133,7 @@ mem_init(void)
 	i386_detect_memory();
 
 	// Remove this line when you're ready to test this function.
-	panic("mem_init: This function is not finished\n");
+	// panic("mem_init: This function is not finished\n");
 
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
@@ -143,6 +155,8 @@ mem_init(void)
 	// each physical page, there is a corresponding struct PageInfo in this
 	// array.  'npages' is the number of physical pages in memory.
 	// Your code goes here:
+	pages = (struct PageInfo *)boot_alloc(npages * sizeof(struct PageInfo));
+	memset(pages, 0, ROUNDUP(npages*sizeof(struct PageInfo), PGSIZE));
 
 
 	//////////////////////////////////////////////////////////////////////
@@ -246,11 +260,29 @@ page_init(void)
 	// Change the code to reflect this.
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
+	
+	// Keep the example codes for future use.
+	// size_t i;
+	// for (i = 0; i < npages; i++) {
+	//	pages[i].pp_ref = 0;
+	//	pages[i].pp_link = page_free_list;
+	//	page_free_list = &pages[i];
+	// }
+	
+	// Notice that we use a reversed link here, following the example.
 	size_t i;
 	for (i = 0; i < npages; i++) {
-		pages[i].pp_ref = 0;
-		pages[i].pp_link = page_free_list;
-		page_free_list = &pages[i];
+		if (i == 0 || // case 1 || (case 3 || case 4)
+		   (i >= IOPHYSMEM/PGSIZE &&
+		   (i < ((physaddr_t)(PADDR(pages)+ROUNDUP(npages*sizeof(struct PageInfo), PGSIZE)))/PGSIZE))){
+
+			pages[i].pp_ref = 1;
+			pages[i].pp_link = NULL;
+		} else  { // case 2 || case 4
+			pages[i].pp_ref = 0;
+			pages[i].pp_link = page_free_list;
+			page_free_list = &pages[i];
+		}
 	}
 }
 
@@ -267,7 +299,22 @@ struct PageInfo *
 page_alloc(int alloc_flags)
 {
 	// Fill this function in
-	return 0;
+	struct PageInfo* result = page_free_list;
+
+	if (!page_free_list) {
+		// out of free memory
+		return NULL;
+	} else {
+		page_free_list = page_free_list->pp_link;
+		
+		if(alloc_flags & ALLOC_ZERO) {
+			memset(page2kva(result), 0, PGSIZE);
+		}
+
+		result->pp_link = NULL;
+		return result;
+	}
+	// return 0;
 }
 
 //
@@ -278,6 +325,25 @@ void
 page_free(struct PageInfo *pp)
 {
 	// Fill this function in
+	struct PageInfo* tmp = page_free_list;
+	if (pp->pp_ref != 0) {
+		panic("page_free is called while the ref is not 0.\n");
+	} else {
+		if(pp > tmp) {
+			pp->pp_link = tmp;
+			page_free_list = pp;
+			return;
+		} else {
+			while(tmp != NULL) {
+				if( pp < tmp && pp > tmp->pp_link) {
+					pp->pp_link = tmp->pp_link;
+					tmp->pp_link = pp;
+					return;
+				}
+				tmp = tmp->pp_link;
+			}
+		}
+	}	
 }
 
 //
