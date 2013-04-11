@@ -181,6 +181,11 @@ mem_init(void)
 	//      (ie. perm = PTE_U | PTE_P)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
+	boot_map_region(kern_pgdir, UPAGES,
+		ROUNDUP(npages * sizeof(struct PageInfo),PGSIZE),
+		PADDR(pages),
+		PTE_U);
+			
 
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
@@ -193,6 +198,12 @@ mem_init(void)
 	//       overwrite memory.  Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
+	boot_map_region(kern_pgdir,
+		KSTACKTOP - KSTKSIZE,
+		KSTKSIZE,
+		PADDR(bootstack),
+		PTE_W);
+		
 
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
@@ -202,6 +213,11 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
+	boot_map_region(kern_pgdir,
+		KERNBASE,
+		~KERNBASE+1,
+		(physaddr_t)0,
+		PTE_W);
 
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
@@ -388,7 +404,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 	struct PageInfo* pi;
 
 	if(*pt & PTE_P) {
-		result = (pte_t*)(KADDR(PTE_ADDR(*pt)) + PTX(va));
+		result = (pte_t*)KADDR(PTE_ADDR(*pt)) + PTX(va);
 		return result;
 	}
 
@@ -398,8 +414,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 
 		// map
 		*pt = page2pa(pi) | PTE_P | PTE_U | PTE_W;
-		result = (pte_t*)(KADDR(PTE_ADDR(*pt)) + PTX(va));
-		// *result = PTE_P | PTE_U | PTE_W;
+		result = (pte_t*)KADDR(PTE_ADDR(*pt)) + PTX(va);
 		return result;
 	}
 
@@ -461,17 +476,23 @@ int
 page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
 	// Fill this function in
-	pte_t * pte;
-
-	page_remove(pgdir, va);
-	pte = pgdir_walk(pgdir, va, 1);
+	pte_t* pte = pgdir_walk(pgdir, va, 1);
 	if(pte == NULL) {
 		return -E_NO_MEM;
 	}
 
-	pp->pp_ref++;
+	if (*pte & PTE_P) {
+		if (PTE_ADDR(*pte) == page2pa(pp)) {
+			pp->pp_ref--;
+		} else {
+			page_remove(pgdir, va);
+		}
+	}
+
 	*pte = page2pa(pp) | perm | PTE_P;
+	pp->pp_ref++;
 	tlb_invalidate(pgdir, va);
+
 	return 0;
 }
 
