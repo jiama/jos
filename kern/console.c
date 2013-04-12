@@ -163,35 +163,46 @@ static void
 cga_putc(int c)
 {
 	// if no attribute given, then use black on white
+	/*
+	 *  look at the codes below, it masks the lowest 16 bits
+	 *  and with comments above, the highest 16 bits are attributes.
+	 *  easy to guess that one of 0x0 & 0x7 is black, the other white
+	 *  8 bits for background and the other foreground.
+	 *  So if you want to finish the challenge, change the high 16 bits.
+	 */
 	if (!(c & ~0xFF))
 		c |= 0x0700;
+		// c += c << 8;
 
 	switch (c & 0xff) {
-	case '\b':
+	case '\b': // backspace
 		if (crt_pos > 0) {
 			crt_pos--;
 			crt_buf[crt_pos] = (c & ~0xff) | ' ';
 		}
 		break;
-	case '\n':
+	case '\n': // newline
 		crt_pos += CRT_COLS;
 		/* fallthru */
-	case '\r':
+	case '\r': // return to ahead
 		crt_pos -= (crt_pos % CRT_COLS);
 		break;
-	case '\t':
+	case '\t': // table
 		cons_putc(' ');
 		cons_putc(' ');
 		cons_putc(' ');
 		cons_putc(' ');
 		cons_putc(' ');
 		break;
-	default:
+	default: // default
 		crt_buf[crt_pos++] = c;		/* write the character */
 		break;
 	}
 
 	// What is the purpose of this?
+	/* 
+	 * those lines are used to scroll the screen. flush the buffer
+	 */
 	if (crt_pos >= CRT_SIZE) {
 		int i;
 
